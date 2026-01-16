@@ -1,5 +1,16 @@
 fastapi
 uvicorn
+python-multipart
 langchain
 langchain-openai
+langchain-anthropic
+langchain-google-genai
 python-dotenv
+cloudinary
+requests
+pillow
+openai
+anthropic
+google-generativeai
+replicate
+pymongo
