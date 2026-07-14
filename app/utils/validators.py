@@ -2,32 +2,7 @@
 Utilitários para validação de tokens e configurações de API
 """
 import os
-import re
 from typing import Optional, Tuple
-
-def validar_token_replicate(token: Optional[str]) -> Tuple[bool, str]:
-    """
-    Valida se o token do Replicate está no formato correto.
-    
-    Args:
-        token: Token a ser validado
-        
-    Returns:
-        Tupla (é_válido, mensagem_erro)
-    """
-    if not token:
-        return False, "Token não configurado"
-    
-    token = token.strip()
-    
-    # Tokens do Replicate começam com 'r8_'
-    if not token.startswith('r8_'):
-        return False, f"Token inválido: Tokens do Replicate devem começar com 'r8_'. Token fornecido começa com '{token[:3]}...'"
-    
-    if len(token) < 40:
-        return False, "Token muito curto para ser um token válido do Replicate"
-    
-    return True, ""
 
 def validar_token_stability_ai(token: Optional[str]) -> Tuple[bool, str]:
     """
@@ -114,10 +89,7 @@ def verificar_configuracao_modelo(env_var: str, validar_formato: bool = False) -
     token = token.strip()
     
     if validar_formato:
-        if env_var == "REPLICATE_API_TOKEN":
-            is_valid, error_msg = validar_token_replicate(token)
-            return token, is_valid, error_msg
-        elif env_var in ("STABILITY_AI_API_KEY", "STABILITY_API_KEY"):
+        if env_var in ("STABILITY_AI_API_KEY", "STABILITY_API_KEY"):
             is_valid, error_msg = validar_token_stability_ai(token)
             return token, is_valid, error_msg
         elif env_var == "OPENAI_API_KEY":

@@ -66,7 +66,8 @@ def salvar_imagem_gerada(imagem_data: Dict) -> Optional[str]:
             "criado_em": datetime.utcnow(),
             "tema": imagem_data.get("tema"),
             "publico": imagem_data.get("publico"),
-            "rede_alvo": imagem_data.get("rede_alvo")
+            "rede_alvo": imagem_data.get("rede_alvo"),
+            "usuario_id": imagem_data.get("usuario_id"),
         }
         
         resultado = collection.insert_one(documento)
@@ -109,7 +110,8 @@ def salvar_legenda_gerada(legenda_data: Dict) -> Optional[str]:
             "publico": legenda_data.get("publico"),
             "tom": legenda_data.get("tom"),
             "rede_alvo": legenda_data.get("rede_alvo"),
-            "formato": legenda_data.get("formato")
+            "formato": legenda_data.get("formato"),
+            "usuario_id": legenda_data.get("usuario_id"),
         }
         
         resultado = collection.insert_one(documento)
@@ -151,7 +153,8 @@ def salvar_conteudo_completo(conteudo_data: Dict) -> Optional[str]:
             "imagens": conteudo_data.get("imagens", []),
             "legendas": conteudo_data.get("legendas", []),
             "total_combinacoes": conteudo_data.get("total_combinacoes", 0),
-            "criado_em": datetime.utcnow()
+            "criado_em": datetime.utcnow(),
+            "usuario_id": conteudo_data.get("usuario_id"),
         }
         
         resultado = collection.insert_one(documento)

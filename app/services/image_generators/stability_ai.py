@@ -7,12 +7,11 @@ import requests
 import base64
 from io import BytesIO
 from dotenv import load_dotenv
-from app.services.cloud_storage_service import upload_imagem_para_cloud, upload_para_imgbb
+from app.services.cloud_storage_service import upload_para_imgbb
 
 load_dotenv()
 
 STABILITY_AI_API_KEY = os.getenv("STABILITY_AI_API_KEY") or os.getenv("STABILITY_API_KEY")
-USE_CLOUDINARY = os.getenv("USE_CLOUDINARY", "true").lower() == "true"
 STABILITY_API_URL = "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image"
 
 def gerar_imagem_stability_ai(params):
@@ -116,17 +115,10 @@ def gerar_imagem_stability_ai(params):
             image.save(jpg_buffer, 'JPEG', quality=95, optimize=True)
             jpg_buffer.seek(0)
             
-            # Upload para cloud storage
-            # Cloudinary aceita BytesIO diretamente
-            if USE_CLOUDINARY:
-                cloud_result = upload_imagem_para_cloud(jpg_buffer)
-                url_publica = cloud_result['secure_url']
-                public_id = cloud_result.get('public_id')
-            else:
-                # Usa função existente que agora aceita BytesIO
-                cloud_result = upload_para_imgbb(jpg_buffer)
-                url_publica = cloud_result['secure_url']
-                public_id = None
+            # Upload para storage público (projeto simplificado: apenas ImgBB)
+            cloud_result = upload_para_imgbb(jpg_buffer)
+            url_publica = cloud_result['secure_url']
+            public_id = None
             
             return {
                 'modelo': 'stability-ai',

@@ -8,12 +8,11 @@ O LangChain é usado para todas as operações de texto/LLM no projeto.
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
-from app.services.cloud_storage_service import upload_imagem_para_cloud, upload_para_imgbb
+from app.services.cloud_storage_service import upload_para_imgbb
 
 load_dotenv()
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
-USE_CLOUDINARY = os.getenv("USE_CLOUDINARY", "true").lower() == "true"
 
 def gerar_imagem_dalle(params):
     """
@@ -49,15 +48,10 @@ def gerar_imagem_dalle(params):
         )
         url_imagem_temporaria = response.data[0].url
         
-        # Upload para cloud storage
-        if USE_CLOUDINARY:
-            cloud_result = upload_imagem_para_cloud(url_imagem_temporaria)
-            url_publica = cloud_result['secure_url']
-            public_id = cloud_result.get('public_id')
-        else:
-            cloud_result = upload_para_imgbb(url_imagem_temporaria)
-            url_publica = cloud_result['secure_url']
-            public_id = None
+        # Upload para storage público (projeto simplificado: apenas ImgBB)
+        cloud_result = upload_para_imgbb(url_imagem_temporaria)
+        url_publica = cloud_result['secure_url']
+        public_id = None
         
         return {
             'modelo': 'dalle-3',

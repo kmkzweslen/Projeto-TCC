@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.conteudo import router as conteudo_router  # É só uma vez!
+from app.api.conteudo import router as conteudo_router
+from app.api.auth import router as auth_router
 
 app = FastAPI(
     title="API Conteúdo com LLMs",
@@ -18,6 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix="/api")
 app.include_router(conteudo_router, prefix="/api")
 
 @app.get("/")
@@ -28,8 +30,11 @@ def root():
         "version": "2.0.0",
         "docs": "/docs",
         "endpoints": {
-            "gerar_conteudo": "POST /api/",
-            "publicar_feed": "POST /api/instagram/publicar_feed"
+            "login_instagram": "GET /api/auth/instagram/login",
+            "callback_oauth": "GET /api/auth/instagram/callback",
+            "usuario_atual": "GET /api/auth/me",
+            "gerar_conteudo": "POST /api/ (requer Bearer token)",
+            "publicar_feed": "POST /api/instagram/publicar_feed (requer Bearer token)"
         },
         "nota": "⚠️ Requisições de geração podem levar 2-3 minutos para completar"
     }
