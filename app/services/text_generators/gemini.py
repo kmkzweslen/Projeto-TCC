@@ -1,98 +1,68 @@
 """
-Serviço de geração de legendas usando Gemini (Google) via LangChain
+Geração de legenda pelo Google Gemini (REST generateContent).
+
+A família Gemini 1.5 foi retirada. O modelo é definido por GEMINI_TEXT_MODEL;
+se ele não existir (HTTP 404), são tentados os modelos de GEMINI_FALLBACK_MODELS.
+A partir do Gemini 3.6, temperature/top_p/top_k não devem ser enviados, por
+isso a temperatura só vai na requisição quando LLM_TEMPERATURE for definido.
 """
-import os
-from dotenv import load_dotenv
+import requests
 
-load_dotenv()
+from app.core import config
+from app.services.http_utils import mensagem_de_erro
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+NOME = "Google Gemini"
 
-def gerar_legenda_gemini(params):
-    """
-    Gera uma legenda usando Gemini (Google) via LangChain.
-    
-    Args:
-        params: Dicionário com parâmetros (tema, tipo, objetivo, público, tom, rede_alvo, formato)
-    
-    Returns:
-        dict: Legenda gerada e informações do modelo
-    """
-    # Importa LangChain para Gemini apenas quando necessário
-    try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-    except ImportError:
-        return {
-            'modelo': 'gemini',
-            'status': 'error',
-            'error': 'Módulo langchain-google-genai não instalado. Execute: pip install langchain-google-genai'
-        }
-    
-    if not GEMINI_API_KEY:
-        return {
-            'modelo': 'gemini',
-            'status': 'error',
-            'error': 'GEMINI_API_KEY não configurada no .env'
-        }
-    
-    # Usa metodologia Co-STAR para construção do prompt
-    from app.utils.prompt_engineering import construir_prompt_co_star
-    prompt = construir_prompt_co_star(params, tipo="legenda")
-    
-    # Lista modelos para tentar (LangChain pode usar diferentes formatos)
-    modelos_para_tentar = [
-        'gemini-1.5-flash',
-        'gemini-1.5-pro',
-        'gemini-pro',
-        'gemini-1.5-flash-latest',
-        'gemini-pro-latest'
+# Modelo efetivamente usado na última chamada (para registro na resposta).
+_ultimo_modelo = {"nome": None}
+
+
+def disponivel() -> bool:
+    return bool(config.GEMINI_API_KEY)
+
+
+def modelo() -> str:
+    return _ultimo_modelo["nome"] or config.GEMINI_TEXT_MODEL
+
+
+def _extrair_texto(dados: dict) -> str:
+    candidatos = dados.get("candidates") or []
+    if not candidatos:
+        bloqueio = (dados.get("promptFeedback") or {}).get("blockReason")
+        raise RuntimeError(f"O Gemini não retornou candidatos (bloqueio: {bloqueio}).")
+    partes = ((candidatos[0].get("content") or {}).get("parts")) or []
+    texto = "".join(p.get("text", "") for p in partes if not p.get("thought"))
+    if not texto.strip():
+        motivo = candidatos[0].get("finishReason")
+        raise RuntimeError(f"O Gemini retornou uma resposta vazia (finishReason: {motivo}).")
+    return texto.strip()
+
+
+def gerar_texto(prompt: str, sistema: str) -> str:
+    corpo = {
+        "systemInstruction": {"parts": [{"text": sistema}]},
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+    }
+    if config.LLM_TEMPERATURE is not None:
+        corpo["generationConfig"] = {"temperature": config.LLM_TEMPERATURE}
+
+    modelos = [config.GEMINI_TEXT_MODEL] + [
+        m for m in config.GEMINI_FALLBACK_MODELS if m != config.GEMINI_TEXT_MODEL
     ]
-    
-    try:
-        modelo_usado = None
-        erro_modelo = None
-        
-        # Tenta cada modelo até encontrar um que funcione
-        for modelo_nome in modelos_para_tentar:
-            try:
-                llm_gemini = ChatGoogleGenerativeAI(
-                    model=modelo_nome,
-                    temperature=0.7,
-                    max_output_tokens=1024,
-                    google_api_key=GEMINI_API_KEY
-                )
-                
-                messages = [
-                    ("system", "Você é um especialista em marketing digital e criação de conteúdo para redes sociais. Siga rigorosamente todas as diretrizes fornecidas."),
-                    ("human", prompt)
-                ]
-                
-                resposta = llm_gemini.invoke(messages)
-                modelo_usado = modelo_nome
-                
-                return {
-                    'modelo': 'gemini',
-                    'legenda': resposta.content,
-                    'status': 'success'
-                }
-            except Exception as e:
-                erro_msg = str(e)
-                erro_modelo = erro_msg
-                # Continua tentando outros modelos
-                continue
-        
-        # Se nenhum modelo funcionou
-        return {
-            'modelo': 'gemini',
-            'status': 'error',
-            'error': f'Nenhum modelo Gemini disponível. Último erro: {erro_modelo[:150] if erro_modelo else "N/A"}'
-        }
-                
-    except Exception as e:
-        print(f"⚠️ Erro ao gerar legenda com Gemini: {str(e)}")
-        return {
-            'modelo': 'gemini',
-            'status': 'error',
-            'error': str(e)
-        }
+    ultimo_erro = "nenhum modelo configurado"
+    for nome_modelo in modelos:
+        resposta = requests.post(
+            f"{config.GEMINI_BASE_URL}/models/{nome_modelo}:generateContent",
+            headers={"x-goog-api-key": config.GEMINI_API_KEY},
+            json=corpo,
+            timeout=config.TEXT_TIMEOUT_S,
+        )
+        if resposta.status_code == 404:
+            ultimo_erro = f"modelo '{nome_modelo}' não encontrado"
+            continue
+        if not resposta.ok:
+            raise RuntimeError(mensagem_de_erro(resposta))
+        _ultimo_modelo["nome"] = nome_modelo
+        return _extrair_texto(resposta.json())
 
+    raise RuntimeError(f"Nenhum modelo Gemini disponível ({ultimo_erro}).")

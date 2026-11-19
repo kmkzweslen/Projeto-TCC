@@ -1,68 +1,59 @@
-import os
+"""
+Hospedagem pública das imagens (ImgBB).
+
+A Graph API busca a imagem por URL no momento da publicação, então ela
+precisa estar em um servidor publicamente acessível.
+"""
+import base64
+from typing import Dict
+
 import requests
-from io import BytesIO
-from dotenv import load_dotenv
-from app.utils.imagem import baixar_e_converter_para_jpg, validar_imagem
 
-load_dotenv()
+from app.core import config
+from app.utils.imagem import para_jpeg
 
-def upload_para_imgbb(image_url_or_path):
-    """Faz upload para ImgBB e retorna URLs públicas."""
-    imgbb_api_key = os.getenv("IMGBB_API_KEY")
-    
-    if not imgbb_api_key:
-        raise Exception("IMGBB_API_KEY não configurada no .env")
-    
+IMGBB_URL = "https://api.imgbb.com/1/upload"
+TIMEOUT_UPLOAD_S = 60
+
+
+class ErroHospedagem(Exception):
+    pass
+
+
+def hospedar_imagem(conteudo: bytes) -> Dict:
+    """
+    Converte a imagem para JPEG e envia ao ImgBB.
+    Retorna um dicionário com 'public_url' e metadados do upload.
+    """
+    if not config.IMGBB_API_KEY:
+        raise ErroHospedagem("IMGBB_API_KEY não configurada no .env")
+
+    jpeg = para_jpeg(conteudo)
+
     try:
-        print("📥 Preparando imagem para ImgBB...")
-        if isinstance(image_url_or_path, BytesIO):
-            image_url_or_path.seek(0)
-            image_data = image_url_or_path.read()
-            image_url_or_path.seek(0)
-        elif image_url_or_path.startswith('http'):
-            info = validar_imagem(image_url_or_path)
-            if not info['valida']:
-                raise Exception(f"Imagem inválida: {info.get('erro')}")
-            
-            print("🔄 Convertendo para JPG...")
-            image_buffer = baixar_e_converter_para_jpg(image_url_or_path)
-            image_data = image_buffer.getvalue()
-        else:
-            with open(image_url_or_path, 'rb') as f:
-                image_data = f.read()
-        
-        print("☁️  Upload para ImgBB...")
-        url = "https://api.imgbb.com/1/upload"
-        
-        response = requests.post(url, files={"image": image_data}, data={"key": imgbb_api_key})
-        response.raise_for_status()
-        result = response.json()
-        
-        if result.get('success'):
-            return {
-                'public_url': result['data']['url'],
-                'secure_url': result['data']['url'], 
-                'delete_url': result['data'].get('delete_url'),
-                'display_url': result['data'].get('display_url'),
-                'width': result['data'].get('width', 1024),
-                'height': result['data'].get('height', 1024),
-                'format': 'jpg',
-                'size': result['data'].get('size', 0), 
-                'thumb_url': result['data'].get('thumb', {}).get('url'), 
-                'medium_url': result['data'].get('medium', {}).get('url'),
-                'image_url': result['data'].get('image', {}).get('url')
-            }
-        else:
-            error_msg = result.get('error', {}).get('message', 'Falha desconhecida no upload')
-            raise Exception(f"Falha no upload para ImgBB: {error_msg}")
-    
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Erro de conexão com ImgBB: {str(e)}")
-        raise Exception(f"Erro de conexão ao fazer upload para ImgBB: {str(e)}")
-    except Exception as e:
-        print(f"❌ Erro no upload para ImgBB: {str(e)}")
-        raise Exception(f"Erro ao fazer upload para ImgBB: {str(e)}")
+        resposta = requests.post(
+            IMGBB_URL,
+            data={
+                "key": config.IMGBB_API_KEY,
+                "image": base64.b64encode(jpeg).decode(),
+            },
+            timeout=TIMEOUT_UPLOAD_S,
+        )
+        resultado = resposta.json()
+    except (requests.RequestException, ValueError) as e:
+        raise ErroHospedagem(f"Erro de conexão com o ImgBB: {e}") from e
 
+    if not resposta.ok or not resultado.get("success"):
+        mensagem = (resultado.get("error") or {}).get("message", f"HTTP {resposta.status_code}")
+        raise ErroHospedagem(f"Falha no upload para o ImgBB: {mensagem}")
 
-def upload_imagem_para_cloud(image_url_or_path, folder="instagram_posts"):
-    return upload_para_imgbb(image_url_or_path)
+    dados = resultado["data"]
+    return {
+        "public_url": dados["url"],
+        "display_url": dados.get("display_url"),
+        "delete_url": dados.get("delete_url"),
+        "width": dados.get("width"),
+        "height": dados.get("height"),
+        "size": dados.get("size"),
+        "format": "jpg",
+    }

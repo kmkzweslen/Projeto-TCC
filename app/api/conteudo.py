@@ -1,95 +1,111 @@
-from fastapi import APIRouter, HTTPException, Depends
-from app.schemas.entrada import Entrada
-from app.schemas.auth import PublicarFeedRequest
-from app.services.multi_model_service import gerar_conteudo_multi_modelo
-from app.services.instagram_service import publicar_no_feed
+from fastapi import APIRouter, Depends, HTTPException, Query
+from starlette.concurrency import run_in_threadpool
+
+from app.core import config
 from app.dependencies.auth import get_current_user
+from app.schemas.auth import PublicarFeedRequest
+from app.schemas.entrada import Entrada
+from app.schemas.resposta import RespostaMultiModelo
+from app.services.database_service import listar_historico, salvar_publicacao
+from app.services.instagram_service import publicar_no_feed
+from app.services.multi_model_service import (
+    PROVEDORES_IMAGEM,
+    PROVEDORES_TEXTO,
+    gerar_conteudo_multi_modelo,
+    persistir_resultado,
+)
 
 router = APIRouter()
 
 
-@router.post("/instagram/publicar_feed")
-def publicar_feed(
-    data: PublicarFeedRequest,
-    usuario: dict = Depends(get_current_user),
-):
-    """
-    Publica no feed do Instagram usando a conta do usuário logado.
-    Requer header: Authorization: Bearer <token>
-    """
-    if not usuario.get("ig_user_id") or not usuario.get("access_token"):
-        raise HTTPException(
-            status_code=400,
-            detail="Conta Instagram não vinculada. Faça login novamente em /api/auth/instagram/login",
-        )
-
-    resultado = publicar_no_feed(
-        image_url=data.image_url,
-        caption=data.caption,
-        ig_user_id=usuario["ig_user_id"],
-        access_token=usuario["access_token"],
-    )
-
-    if "error" in resultado:
-        raise HTTPException(status_code=502, detail=resultado)
-
+@router.get("/status", tags=["Sistema"])
+def status_provedores():
+    """Provedores configurados e modelos em uso (não expõe chaves)."""
     return {
-        "mensagem": "Conteúdo publicado com sucesso no Instagram!",
-        "publicacao": resultado,
+        "texto": [
+            {"provedor": p.NOME, "modelo": p.modelo(), "configurado": p.disponivel()}
+            for p in PROVEDORES_TEXTO
+        ],
+        "imagem": [
+            {"provedor": p.NOME, "modelo": p.modelo(), "configurado": p.disponivel()}
+            for p, _ in PROVEDORES_IMAGEM
+        ],
+        "hospedagem_imagens": bool(config.IMGBB_API_KEY),
+        "banco_de_dados": bool(config.MONGODB_URI),
+        "graph_api_version": config.META_GRAPH_VERSION,
     }
 
 
-@router.post("/")
+@router.post("/", response_model=RespostaMultiModelo, tags=["Conteúdo"])
 async def gerar_conteudo_route(
     entrada: Entrada,
     usuario: dict = Depends(get_current_user),
 ):
     """
-    Gera imagens e legendas com IA (requer login).
-    Após gerar, use POST /api/instagram/publicar_feed com a imagem e legenda escolhidas.
+    Gera imagens e legendas com todos os provedores configurados (requer login).
+    Depois, publique o par escolhido em POST /api/instagram/publicar_feed.
     """
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
-
+    params = entrada.model_dump()
     try:
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            resultado = await loop.run_in_executor(
-                executor,
-                gerar_conteudo_multi_modelo,
-                entrada.dict(),
-            )
+        resultado = await run_in_threadpool(gerar_conteudo_multi_modelo, params)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar conteúdo: {e}")
 
-        try:
-            from app.services.database_service import (
-                salvar_conteudo_completo,
-                salvar_imagem_gerada,
-                salvar_legenda_gerada,
-            )
+    resultado["conteudo_id"] = await run_in_threadpool(
+        persistir_resultado, resultado, params, usuario.get("id")
+    )
+    return resultado
 
-            dados_para_salvar = resultado.copy()
-            dados_para_salvar.update(entrada.dict())
-            dados_para_salvar["usuario_id"] = usuario.get("id")
 
-            conteudo_id = salvar_conteudo_completo(dados_para_salvar)
+@router.post("/instagram/publicar_feed", tags=["Instagram"])
+async def publicar_feed(
+    data: PublicarFeedRequest,
+    usuario: dict = Depends(get_current_user),
+):
+    """
+    Publica no feed do Instagram a imagem e a legenda escolhidas pelo usuário.
+    Requer header: Authorization: Bearer <token>
+    """
+    if not usuario.get("ig_user_id") or not usuario.get("access_token"):
+        raise HTTPException(
+            status_code=400,
+            detail="Conta do Instagram não vinculada. Faça login novamente em /api/auth/instagram/login",
+        )
 
-            for imagem in resultado.get("imagens", []):
-                imagem_data = imagem.copy()
-                imagem_data.update(entrada.dict())
-                imagem_data["usuario_id"] = usuario.get("id")
-                salvar_imagem_gerada(imagem_data)
+    resultado = await run_in_threadpool(
+        publicar_no_feed,
+        data.image_url,
+        data.caption,
+        usuario["ig_user_id"],
+        usuario["access_token"],
+    )
 
-            for legenda in resultado.get("legendas", []):
-                legenda_data = legenda.copy()
-                legenda_data.update(entrada.dict())
-                legenda_data["usuario_id"] = usuario.get("id")
-                salvar_legenda_gerada(legenda_data)
+    await run_in_threadpool(salvar_publicacao, {
+        "media_id": resultado.get("media_id"),
+        "permalink": resultado.get("permalink"),
+        "image_url": data.image_url,
+        "caption": data.caption,
+        "conteudo_id": data.conteudo_id,
+        "status": "error" if "error" in resultado else "success",
+        "erro": resultado.get("error"),
+        "tempo_s": resultado.get("tempo_s"),
+        "usuario_id": usuario.get("id"),
+    })
 
-            if conteudo_id:
-                resultado["mongodb_id"] = conteudo_id
-        except Exception as db_error:
-            print(f"⚠️ Erro ao salvar no MongoDB (continuando): {str(db_error)}")
+    if "error" in resultado:
+        codigo = {"validacao": 422, "limite": 429}.get(resultado.get("etapa"), 502)
+        raise HTTPException(status_code=codigo, detail=resultado)
 
-        return resultado
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao gerar conteúdo: {str(e)}")
+    return {"mensagem": "Conteúdo publicado com sucesso no Instagram!", "publicacao": resultado}
+
+
+@router.get("/historico", tags=["Conteúdo"])
+async def historico(
+    limite: int = Query(20, ge=1, le=100, description="Quantidade de gerações a listar"),
+    usuario: dict = Depends(get_current_user),
+):
+    """Últimas gerações do usuário logado, com as publicações de cada uma."""
+    itens = await run_in_threadpool(listar_historico, usuario.get("id"), limite)
+    return {"itens": itens, "total": len(itens)}

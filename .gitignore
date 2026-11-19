@@ -42,3 +42,6 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+# Resultados da avaliação dos cenários
+avaliacao_*.csv
+.pytest_cache/

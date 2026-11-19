@@ -1,214 +1,118 @@
-# API de Geração de Conteúdo para Instagram 🚀
+# API de Conteúdo com IA para Instagram
 
-Sistema automatizado para gerar imagens e textos para Instagram usando LLMs (GPT-3.5 e DALL-E 3) com publicação automática.
+Back-end do TCC *Ferramenta Integrada de IA Generativa para Criação e Publicação de
+Conteúdo no Instagram*. A partir de sete parâmetros, a API:
 
-## ✨ Novidades - Upload Automático!
+1. monta o prompt de legenda no framework **CO-STAR** (Context, Objective, Style,
+   Tone, Audience, Response), com **uma única CTA** escolhida pelo objetivo;
+2. gera, **em paralelo**, legendas (OpenAI GPT e Google Gemini) e imagens
+   (OpenAI GPT Image e Stability AI);
+3. converte as imagens para JPEG e as hospeda no ImgBB (requisitos da Graph API);
+4. verifica cada legenda contra as regras do componente Response (conformidade);
+5. publica no feed do Instagram o par imagem + legenda **escolhido pelo usuário**.
 
-**Agora 100% automático!** Não é mais necessário usar ngrok manualmente.
-
-- ✅ Imagens são automaticamente enviadas para cloud storage (Cloudinary ou ImgBB)
-- ✅ URLs públicas geradas instantaneamente
-- ✅ Pronto para publicar no Instagram sem intervenção manual
-
----
-
-## 🚀 Como rodar a aplicação
-
-### 1. Configurar ambiente virtual
+## Como rodar
 
 ```bash
 python -m venv venv
-venv\Scripts\activate
-```
-
-### 2. Instalar dependências
-
-```bash
+venv\Scripts\activate            # Windows
 pip install -r requirements.txt
-```
-
-### 3. Configurar variáveis de ambiente (`.env`)
-
-Copie o arquivo `.env.example` para `.env` e configure:
-
-```env
-# OpenAI (obrigatório)
-OPENAI_API_KEY=sua_chave_aqui
-
-# Instagram
-IG_USER_ID=seu_id_aqui
-APP_ID=seu_app_id
-APP_SECRET=seu_secret
-USER_ACCESS_TOKEN=seu_token
-
-# Cloud Storage (escolha Cloudinary OU ImgBB)
-CLOUDINARY_CLOUD_NAME=seu_cloud_name
-CLOUDINARY_API_KEY=sua_api_key
-CLOUDINARY_API_SECRET=seu_api_secret
-USE_CLOUDINARY=true
-
-# Modelos Opcionais (configure apenas os que desejar usar)
-# Leonardo.ai (desabilitado - serviço pago)
-# LEONARDO_API_KEY=sua_chave_leonardo
-
-# Stability AI (API oficial) - geração de imagens
-STABILITY_AI_API_KEY=sk-seu_token_stability_ai
-
-# Stable Diffusion (Replicate) - alternativa ao Midjourney (opcional)
-# Obtenha sua chave em: https://replicate.com/account/api-tokens
-REPLICATE_API_TOKEN=r8_seu_token_replicate
-
-# Anthropic Claude (para legendas)
-ANTHROPIC_API_KEY=sua_chave_anthropic
-
-# Google Gemini (para legendas)
-GEMINI_API_KEY=sua_chave_gemini
-
-# MongoDB (para salvar imagens e legendas geradas)
-MONGODB_URI=mongodb://localhost:27017/
-MONGODB_DB_NAME=prototipo
-```
-
-📖 **Guia completo de configuração de modelos de imagem:** Veja `GUIA_CONFIGURAR_MODELOS_IMAGEM.md`
-
-📖 **Guia completo de configuração:** Veja `SETUP_CLOUD_STORAGE.md`
-
-### 4. Rodar a aplicação
-
-```bash
+copy .env.example .env           # e preencha as chaves
 uvicorn main:app --reload
 ```
 
-### 5. Acessar a documentação
+Documentação interativa: http://127.0.0.1:8000/docs
 
-```
-http://127.0.0.1:8000/docs
-```
+## Endpoints
 
----
+| Método | Rota | Função |
+|---|---|---|
+| GET | `/api/auth/instagram/login` | URL de autorização OAuth (Facebook Login) |
+| GET | `/api/auth/instagram/callback` | Troca o código por token e emite o JWT |
+| GET | `/api/auth/me` | Usuário autenticado |
+| GET | `/api/status` | Provedores configurados e modelos em uso |
+| POST | `/api/` | Gera legendas e imagens (requer `Authorization: Bearer <jwt>`) |
+| POST | `/api/instagram/publicar_feed` | Publica o par escolhido (requer JWT) |
+| GET | `/api/historico` | Gerações e publicações do usuário (requer JWT) |
+| GET | `/health` | Verificação de disponibilidade |
 
-## ✨ NOVO: Sistema Multi-Modelo!
+Com `FRONTEND_URL` configurado, o callback envia o usuário de volta ao
+front-end: `FRONTEND_URL/#token=<jwt>` em caso de sucesso ou
+`FRONTEND_URL/#erro=<mensagem>` em caso de falha (o token vai no fragmento,
+não na query string). Para receber o JSON, como nos testes pelo `/docs`, use
+`?redirect=false` ou deixe `FRONTEND_URL` vazio.
 
-**Agora o sistema suporta múltiplos modelos de IA!** 
+A sessão (JWT) dura `JWT_EXPIRE_HOURS` horas: o padrão é 720 (30 dias) e o
+máximo é 1440 (60 dias), que é a validade do token de longa duração da Meta.
 
-Quando você faz uma requisição, **todos os modelos configurados** geram conteúdo simultaneamente:
-- **Imagens**: DALL-E 3, Stable Diffusion, Gemini/Nano Banana
-- **Legendas**: GPT-3.5, GPT-4, Claude, Gemini
+O front-end (Vue 3 + Vite) está em `frontend/`; veja `frontend/README.md`.
 
-Você recebe **todas as opções** e escolhe a melhor combinação!
-
-📖 **Veja o guia completo**: `MULTI_MODELO_GUIDE.md`
-
----
-
-## 📡 Endpoints Disponíveis
-
-### 1. Gerar Conteúdo com Todos os Modelos
-
-**POST** `/api/`
-
-Gera automaticamente imagens e legendas usando **TODOS os modelos configurados** e faz upload para cloud storage.
-
-**Exemplo de requisição:**
+### Exemplo de geração
 
 ```json
+POST /api/
 {
-  "tema": "beleza",
+  "tema": "lançamento da coleção de verão",
   "tipo": "imagem",
-  "objetivo": "atrair seguidores",
-  "publico": "mulheres solteiras entre 20 e 30 anos",
-  "tom": "casual",
+  "objetivo": "vender produto",
+  "publico": "mulheres de 20 a 35 anos",
+  "tom": "descontraído",
   "rede_alvo": "Instagram",
-  "formato": "carrossel"
+  "formato": "post de feed com imagem única"
 }
 ```
 
-**Resposta (múltiplas opções):**
+Cada item de `legendas` traz `provedor`, `modelo`, `legenda`, `tempo_s` e
+`conformidade` (caracteres, emojis, hashtags, CTAs detectadas e o resultado de
+cada regra). Cada item de `imagens` traz `url_publica` e `tempo_s`. Falhas e
+estouros de tempo aparecem em `imagens_falhas` / `legendas_falhas`, sem impedir
+o retorno das demais opções.
+
+### Publicação
 
 ```json
-{
-  "tipo": "imagem",
-  "imagens": [
-    {
-      "modelo": "dalle-3",
-      "url_publica": "https://res.cloudinary.com/...",
-      "status": "success"
-    },
-    {
-      "modelo": "stable-diffusion",
-      "url_publica": "https://res.cloudinary.com/...",
-      "status": "success"
-    }
-  ],
-  "legendas": [
-    {
-      "modelo": "gpt-3.5-turbo",
-      "legenda": "✨ Sua legenda criativa aqui...",
-      "status": "success"
-    },
-    {
-      "modelo": "gpt-4",
-      "legenda": "💫 Outra legenda ainda melhor...",
-      "status": "success"
-    },
-    {
-      "modelo": "claude",
-      "legenda": "🌟 Mais uma opção criativa...",
-      "status": "success"
-    }
-  ],
-  "total_combinacoes": 6
-}
+POST /api/instagram/publicar_feed
+{ "image_url": "https://i.ibb.co/...", "caption": "...", "conteudo_id": "..." }
 ```
 
-### 2. Publicar no Instagram
+Fluxo: valida a URL e a legenda → consulta o limite de publicações em 24 h →
+cria o contêiner → consulta `status_code` até `FINISHED` → publica → retorna o
+`permalink`. Cada tentativa é gravada na coleção `publicacoes`.
 
-**POST** `/api/instagram/publicar_feed`
-
-Publica a imagem e legenda no feed do Instagram. Use este endpoint após gerar conteúdo e escolher a imagem e legenda desejadas.
-
-```json
-{
-  "image_url": "https://res.cloudinary.com/...",
-  "caption": "Sua legenda aqui"
-}
-```
-
----
-
-## 🎯 Fluxo Completo Automatizado
+## Estrutura
 
 ```
-Usuário → Parâmetros → DALL-E 3 → Cloud Storage → URL Pública → Instagram
-                     ↓
-                  GPT-3.5 → Legenda
+app/
+  api/            rotas (auth.py, conteudo.py)
+  core/config.py  todas as variáveis de ambiente
+  schemas/        entrada (CO-STAR), respostas e auth
+  services/
+    text_generators/   gpt.py, gemini.py        (adaptadores REST)
+    image_generators/  openai_image.py, stability_ai.py
+    multi_model_service.py   orquestração paralela
+    instagram_service.py     publicação com consulta de status
+    cloud_storage_service.py JPEG + ImgBB
+    auth_service.py / user_service.py / database_service.py
+  utils/
+    prompt_engineering.py  CO-STAR, CTA e regras da legenda
+    conformidade.py        verificação da legenda (critério C5)
+    criptografia.py        tokens da Meta criptografados no banco
+    imagem.py              conversão para JPEG
+scripts/avaliar_cenarios.py  avaliação dos cenários S1–S3 (CSV + resumo)
+tests/                       testes automatizados (pytest)
 ```
 
-**Zero intervenção manual! 🎉**
+Cada provedor é um adaptador com a mesma interface (`disponivel()`, `modelo()`,
+`gerar_texto()`/`gerar_imagem()`). Para trocar de modelo, basta alterar o `.env`.
 
----
+## Testes e avaliação
 
-## 📚 Documentação Adicional
+```bash
+pip install -r requirements-dev.txt
+python -m pytest                                   # testes, sem chamar APIs reais
+python -m scripts.avaliar_cenarios --repeticoes 5  # cenários S1–S3 com as APIs reais
+```
 
-- **`MULTI_MODELO_GUIDE.md`** - 🆕 **GUIA COMPLETO: Sistema Multi-Modelo - Como usar múltiplos modelos de IA**
-- **`FLUXO_COMPLETO_CODIGO.md`** - 🚀 **Guia passo a passo: Como usar o código (copiar e colar)**
-- **`COMO_PUBLICAR_NO_FEED.md`** - 📤 **Guia completo: Como publicar no Instagram após gerar conteúdo**
-- **`PROCESSAMENTO_IMAGENS.md`** - 🖼️ **Como funciona o download e conversão de imagens para JPG**
-- **`USANDO_IMGBB.md`** - 🆓 **Guia de compatibilidade e uso do ImgBB (100% gratuito)**
-- **`SETUP_CLOUD_STORAGE.md`** - Guia completo de configuração do cloud storage
-
-
----
-
-## 🛠️ Tecnologias
-
-- **FastAPI** - Framework web
-- **LangChain** - Orquestração de LLMs (usado para TODAS as operações de texto)
-  - **langchain-openai** - GPT (legendas)
-  - **langchain-google-genai** - Gemini para legendas
-- **OpenAI** - DALL-E 3 para geração de imagens (via cliente direto, pois LangChain não suporta DALL-E)
-- **Stability AI** - Geração de imagens
-- **ImgBB** - Cloud storage para imagens
-- **Facebook Graph API** - Publicação no Instagram
-
----
+O script grava um CSV (separador `;`, abre direto no Excel) e imprime, por
+cenário e provedor, a taxa de sucesso, o tempo médio, o desvio-padrão e as
+legendas conformes, que são os dados da tabela de validação técnica do artigo.

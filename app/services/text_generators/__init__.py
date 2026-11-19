@@ -1,2 +1,1 @@
-# Serviços de geração de legendas/textos
-
+"""Adaptadores de provedores de texto. Cada um expõe: NOME, disponivel(), modelo(), gerar_texto(prompt, sistema) -> str."""

@@ -1,55 +1,48 @@
 """
-Serviço de geração de legendas usando GPT (OpenAI)
+Geração de legenda pela OpenAI (Chat Completions).
+
+O gpt-3.5-turbo foi desligado em 23/10/2026; o modelo é definido por
+OPENAI_TEXT_MODEL no .env. Os modelos GPT-5.x só aceitam a temperatura
+padrão, por isso ela só é enviada quando LLM_TEMPERATURE for definido.
 """
-import os
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+import requests
 
-load_dotenv()
+from app.core import config
+from app.services.http_utils import mensagem_de_erro
 
-openai_api_key = os.getenv("OPENAI_API_KEY")
+NOME = "OpenAI GPT"
 
-# LLMs serão criados dentro das funções se a chave existir
 
-def gerar_legenda_gpt35(params):
-    """
-    Gera uma legenda usando GPT-3.5-turbo.
-    
-    Args:
-        params: Dicionário com parâmetros (tema, tipo, objetivo, público, tom, rede_alvo, formato)
-    
-    Returns:
-        dict: Legenda gerada e informações do modelo
-    """
-    if not openai_api_key:
-        return {
-            'modelo': 'gpt-3.5-turbo',
-            'status': 'error',
-            'error': 'OPENAI_API_KEY não configurada no .env'
-        }
-    
-    # Usa metodologia Co-STAR para construção do prompt
-    from app.utils.prompt_engineering import construir_prompt_co_star
-    prompt = construir_prompt_co_star(params, tipo="legenda")
-    
-    try:
-        llm_gpt35 = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.7, openai_api_key=openai_api_key)
-        messages = [
-            ("system", "Você é um especialista em marketing digital e criação de conteúdo para redes sociais. Siga rigorosamente todas as diretrizes fornecidas."),
-            ("human", prompt)
-        ]
-        resposta = llm_gpt35.invoke(messages)
-        
-        return {
-            'modelo': 'gpt-3.5-turbo',
-            'legenda': resposta.content,
-            'status': 'success'
-        }
-    except Exception as e:
-        print(f"⚠️ Erro ao gerar legenda com GPT-3.5: {str(e)}")
-        return {
-            'modelo': 'gpt-3.5-turbo',
-            'status': 'error',
-            'error': str(e)
-        }
+def disponivel() -> bool:
+    return bool(config.OPENAI_API_KEY)
 
+
+def modelo() -> str:
+    return config.OPENAI_TEXT_MODEL
+
+
+def gerar_texto(prompt: str, sistema: str) -> str:
+    corpo = {
+        "model": config.OPENAI_TEXT_MODEL,
+        "messages": [
+            {"role": "system", "content": sistema},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    if config.LLM_TEMPERATURE is not None:
+        corpo["temperature"] = config.LLM_TEMPERATURE
+
+    resposta = requests.post(
+        f"{config.OPENAI_BASE_URL}/chat/completions",
+        headers={"Authorization": f"Bearer {config.OPENAI_API_KEY}"},
+        json=corpo,
+        timeout=config.TEXT_TIMEOUT_S,
+    )
+    if not resposta.ok:
+        raise RuntimeError(mensagem_de_erro(resposta))
+
+    escolhas = resposta.json().get("choices") or []
+    texto = ((escolhas[0].get("message") or {}).get("content") if escolhas else None) or ""
+    if not texto.strip():
+        raise RuntimeError("A OpenAI retornou uma resposta vazia.")
+    return texto.strip()

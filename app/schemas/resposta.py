@@ -1,32 +1,47 @@
-"""
-Schemas para respostas da API
-"""
-from typing import List, Optional, Dict, Any
+"""Schemas das respostas da API de geração."""
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel
 
+
+class Conformidade(BaseModel):
+    caracteres: int
+    emojis: int
+    hashtags: int
+    ctas_detectadas: int
+    regras: Dict[str, bool]
+    conforme: bool
+
+
 class ImagemGerada(BaseModel):
-    """Modelo para uma imagem gerada"""
+    provedor: str
     modelo: str
-    url_publica: Optional[str] = None
-    url_temporaria: Optional[str] = None
-    public_id: Optional[str] = None
-    cloud_info: Optional[Dict[str, Any]] = None
     status: str
+    url_publica: Optional[str] = None
+    cloud_info: Optional[Dict[str, Any]] = None
+    prompt: Optional[str] = None
+    tempo_s: Optional[float] = None
+    tempo_geracao_s: Optional[float] = None
     error: Optional[str] = None
+
 
 class LegendaGerada(BaseModel):
-    """Modelo para uma legenda gerada"""
+    provedor: str
     modelo: str
-    legenda: Optional[str] = None
     status: str
+    legenda: Optional[str] = None
+    conformidade: Optional[Conformidade] = None
+    tempo_s: Optional[float] = None
     error: Optional[str] = None
 
+
 class RespostaMultiModelo(BaseModel):
-    """Resposta com todas as opções geradas pelos múltiplos modelos"""
     tipo: str
     imagens: List[ImagemGerada] = []
     legendas: List[LegendaGerada] = []
-    imagens_falhas: List[Dict[str, Any]] = []
-    legendas_falhas: List[Dict[str, Any]] = []
+    imagens_falhas: List[ImagemGerada] = []
+    legendas_falhas: List[LegendaGerada] = []
     total_combinacoes: int = 0
-
+    prompt_legenda: Optional[str] = None
+    tempo_total_s: Optional[float] = None
+    conteudo_id: Optional[str] = None

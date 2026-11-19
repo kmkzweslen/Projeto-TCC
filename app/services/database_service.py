@@ -1,204 +1,178 @@
 """
-Serviço de conexão e operações com MongoDB
+Conexão e operações com o MongoDB.
+
+Se MONGODB_URI não estiver configurado, as funções de gravação apenas
+retornam None, e a aplicação continua funcionando (sem persistência).
 """
-import os
-from datetime import datetime
-from typing import Optional, Dict, List
-from dotenv import load_dotenv
+from datetime import datetime, timezone
+from typing import Dict, Optional
 
-load_dotenv()
+from app.core import config
 
-MONGODB_URI = os.getenv("MONGODB_URI")
-MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "prototipo")
-
-# Cliente MongoDB será criado quando necessário
 _mongo_client = None
 _db = None
 
 
+def _agora() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def get_mongo_client():
-    """Retorna o cliente MongoDB, criando se necessário."""
+    """Retorna (cliente, banco), criando a conexão na primeira chamada."""
     global _mongo_client, _db
-    
-    if not MONGODB_URI:
+
+    if not config.MONGODB_URI:
         return None, None
-    
+
     if _mongo_client is None:
         try:
             from pymongo import MongoClient
-            _mongo_client = MongoClient(MONGODB_URI)
-            _db = _mongo_client[MONGODB_DB_NAME]
+
+            _mongo_client = MongoClient(config.MONGODB_URI, serverSelectionTimeoutMS=5000)
+            _db = _mongo_client[config.MONGODB_DB_NAME]
             print("✅ Conectado ao MongoDB")
         except Exception as e:
-            print(f"⚠️ Erro ao conectar ao MongoDB: {str(e)}")
+            print(f"⚠️ Erro ao conectar ao MongoDB: {e}")
             return None, None
-    
+
     return _mongo_client, _db
 
 
-def salvar_imagem_gerada(imagem_data: Dict) -> Optional[str]:
-    """
-    Salva uma imagem gerada no MongoDB.
-    
-    Args:
-        imagem_data: Dicionário com dados da imagem (modelo, url_publica, status, etc.)
-    
-    Returns:
-        str: ID do documento salvo ou None se falhar
-    """
-    client, db = get_mongo_client()
-    
+def _inserir(colecao: str, documento: Dict) -> Optional[str]:
+    _, db = get_mongo_client()
     if db is None:
-        print("⚠️ MongoDB não configurado. Pulando salvamento.")
         return None
-    
     try:
-        collection = db["imagens_geradas"]
-        
-        documento = {
-            "modelo": imagem_data.get("modelo", "desconhecido"),
-            "url_publica": imagem_data.get("url_publica"),
-            "url_temporaria": imagem_data.get("url_temporaria"),
-            "public_id": imagem_data.get("public_id"),
-            "cloud_info": imagem_data.get("cloud_info", {}),
-            "status": imagem_data.get("status", "unknown"),
-            "erro": imagem_data.get("error"),
-            "criado_em": datetime.utcnow(),
-            "tema": imagem_data.get("tema"),
-            "publico": imagem_data.get("publico"),
-            "rede_alvo": imagem_data.get("rede_alvo"),
-            "usuario_id": imagem_data.get("usuario_id"),
-        }
-        
-        resultado = collection.insert_one(documento)
-        print(f"✅ Imagem salva no MongoDB: {resultado.inserted_id}")
+        resultado = db[colecao].insert_one(documento)
         return str(resultado.inserted_id)
-    
     except Exception as e:
-        print(f"⚠️ Erro ao salvar imagem no MongoDB: {str(e)}")
+        print(f"⚠️ Erro ao salvar em '{colecao}': {e}")
         return None
+
+
+def _parametros(dados: Dict) -> Dict:
+    """Campos de entrada (CO-STAR) gravados junto com cada registro."""
+    campos = ("tema", "tipo", "objetivo", "publico", "tom", "rede_alvo", "formato")
+    return {campo: dados.get(campo) for campo in campos}
+
+
+def salvar_imagem_gerada(imagem_data: Dict) -> Optional[str]:
+    documento = {
+        "modelo": imagem_data.get("modelo", "desconhecido"),
+        "provedor": imagem_data.get("provedor"),
+        "url_publica": imagem_data.get("url_publica"),
+        "cloud_info": imagem_data.get("cloud_info", {}),
+        "status": imagem_data.get("status", "unknown"),
+        "erro": imagem_data.get("error"),
+        "tempo_s": imagem_data.get("tempo_s"),
+        "prompt": imagem_data.get("prompt"),
+        "usuario_id": imagem_data.get("usuario_id"),
+        "criado_em": _agora(),
+        **_parametros(imagem_data),
+    }
+    return _inserir("imagens_geradas", documento)
 
 
 def salvar_legenda_gerada(legenda_data: Dict) -> Optional[str]:
-    """
-    Salva uma legenda gerada no MongoDB.
-    
-    Args:
-        legenda_data: Dicionário com dados da legenda (modelo, legenda, status, etc.)
-    
-    Returns:
-        str: ID do documento salvo ou None se falhar
-    """
-    client, db = get_mongo_client()
-    
-    if db is None:
-        print("⚠️ MongoDB não configurado. Pulando salvamento.")
-        return None
-    
-    try:
-        collection = db["legendas_geradas"]
-        
-        documento = {
-            "modelo": legenda_data.get("modelo", "desconhecido"),
-            "legenda": legenda_data.get("legenda"),
-            "status": legenda_data.get("status", "unknown"),
-            "erro": legenda_data.get("error"),
-            "criado_em": datetime.utcnow(),
-            "tema": legenda_data.get("tema"),
-            "tipo": legenda_data.get("tipo"),
-            "objetivo": legenda_data.get("objetivo"),
-            "publico": legenda_data.get("publico"),
-            "tom": legenda_data.get("tom"),
-            "rede_alvo": legenda_data.get("rede_alvo"),
-            "formato": legenda_data.get("formato"),
-            "usuario_id": legenda_data.get("usuario_id"),
-        }
-        
-        resultado = collection.insert_one(documento)
-        print(f"✅ Legenda salva no MongoDB: {resultado.inserted_id}")
-        return str(resultado.inserted_id)
-    
-    except Exception as e:
-        print(f"⚠️ Erro ao salvar legenda no MongoDB: {str(e)}")
-        return None
+    documento = {
+        "modelo": legenda_data.get("modelo", "desconhecido"),
+        "provedor": legenda_data.get("provedor"),
+        "legenda": legenda_data.get("legenda"),
+        "status": legenda_data.get("status", "unknown"),
+        "erro": legenda_data.get("error"),
+        "tempo_s": legenda_data.get("tempo_s"),
+        "conformidade": legenda_data.get("conformidade"),
+        "usuario_id": legenda_data.get("usuario_id"),
+        "criado_em": _agora(),
+        **_parametros(legenda_data),
+    }
+    return _inserir("legendas_geradas", documento)
 
 
 def salvar_conteudo_completo(conteudo_data: Dict) -> Optional[str]:
-    """
-    Salva um conteúdo completo (imagens + legendas) no MongoDB.
-    
-    Args:
-        conteudo_data: Dicionário com dados completos do conteúdo gerado
-    
-    Returns:
-        str: ID do documento salvo ou None se falhar
-    """
-    client, db = get_mongo_client()
-    
-    if db is None:
-        print("⚠️ MongoDB não configurado. Pulando salvamento.")
-        return None
-    
-    try:
-        collection = db["conteudos_gerados"]
-        
-        documento = {
-            "tipo": conteudo_data.get("tipo"),
-            "tema": conteudo_data.get("tema"),
-            "objetivo": conteudo_data.get("objetivo"),
-            "publico": conteudo_data.get("publico"),
-            "tom": conteudo_data.get("tom"),
-            "rede_alvo": conteudo_data.get("rede_alvo"),
-            "formato": conteudo_data.get("formato"),
-            "imagens": conteudo_data.get("imagens", []),
-            "legendas": conteudo_data.get("legendas", []),
-            "total_combinacoes": conteudo_data.get("total_combinacoes", 0),
-            "criado_em": datetime.utcnow(),
-            "usuario_id": conteudo_data.get("usuario_id"),
-        }
-        
-        resultado = collection.insert_one(documento)
-        print(f"✅ Conteúdo completo salvo no MongoDB: {resultado.inserted_id}")
-        return str(resultado.inserted_id)
-    
-    except Exception as e:
-        print(f"⚠️ Erro ao salvar conteúdo completo no MongoDB: {str(e)}")
-        return None
+    documento = {
+        "imagens": conteudo_data.get("imagens", []),
+        "legendas": conteudo_data.get("legendas", []),
+        "imagens_falhas": conteudo_data.get("imagens_falhas", []),
+        "legendas_falhas": conteudo_data.get("legendas_falhas", []),
+        "total_combinacoes": conteudo_data.get("total_combinacoes", 0),
+        "tempo_total_s": conteudo_data.get("tempo_total_s"),
+        "usuario_id": conteudo_data.get("usuario_id"),
+        "criado_em": _agora(),
+        **_parametros(conteudo_data),
+    }
+    return _inserir("conteudos_gerados", documento)
 
 
-def salvar_imagem_editada(edicao_data: Dict) -> Optional[str]:
+def salvar_publicacao(publicacao_data: Dict) -> Optional[str]:
+    """Registra cada publicação feita (evidência do critério C3)."""
+    documento = {
+        "media_id": publicacao_data.get("media_id"),
+        "permalink": publicacao_data.get("permalink"),
+        "image_url": publicacao_data.get("image_url"),
+        "caption": publicacao_data.get("caption"),
+        "conteudo_id": publicacao_data.get("conteudo_id"),
+        "status": publicacao_data.get("status"),
+        "erro": publicacao_data.get("erro"),
+        "tempo_s": publicacao_data.get("tempo_s"),
+        "usuario_id": publicacao_data.get("usuario_id"),
+        "criado_em": _agora(),
+    }
+    return _inserir("publicacoes", documento)
+
+
+def _serializar(valor):
+    """Converte ObjectId/datetime para tipos que o JSON aceita."""
+    if isinstance(valor, datetime):
+        return valor.isoformat()
+    if isinstance(valor, dict):
+        return {k: _serializar(v) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [_serializar(v) for v in valor]
+    if type(valor).__name__ == "ObjectId":
+        return str(valor)
+    return valor
+
+
+def listar_historico(usuario_id: Optional[str], limite: int = 20) -> list:
     """
-    Salva uma imagem editada no MongoDB.
-    
-    Args:
-        edicao_data: Dicionário com dados da edição (prompt, imagens_editadas, etc.)
-    
-    Returns:
-        str: ID do documento salvo ou None se falhar
+    Últimos conteúdos gerados pelo usuário, do mais recente para o mais antigo,
+    cada um com as publicações feitas a partir dele (vinculadas por conteudo_id).
     """
-    client, db = get_mongo_client()
-    
-    if db is None:
-        print("⚠️ MongoDB não configurado. Pulando salvamento.")
-        return None
-    
+    _, db = get_mongo_client()
+    if db is None or not usuario_id:
+        return []
+    limite = max(1, min(int(limite), 100))
     try:
-        collection = db["imagens_editadas"]
-        
-        documento = {
-            "prompt_usado": edicao_data.get("prompt_usado"),
-            "strength": edicao_data.get("strength"),
-            "modelo": edicao_data.get("modelo"),
-            "imagens_editadas": edicao_data.get("imagens_editadas", []),
-            "status": edicao_data.get("status", "unknown"),
-            "erro": edicao_data.get("error"),
-            "criado_em": datetime.utcnow()
-        }
-        
-        resultado = collection.insert_one(documento)
-        print(f"✅ Imagem editada salva no MongoDB: {resultado.inserted_id}")
-        return str(resultado.inserted_id)
-    
-    except Exception as e:
-        print(f"⚠️ Erro ao salvar imagem editada no MongoDB: {str(e)}")
-        return None
+        conteudos = list(
+            db["conteudos_gerados"]
+            .find({"usuario_id": usuario_id})
+            .sort("criado_em", -1)
+            .limit(limite)
+        )
+        ids = [str(c["_id"]) for c in conteudos]
+        publicacoes = {}
+        if ids:
+            for pub in db["publicacoes"].find({"conteudo_id": {"$in": ids}}).sort("criado_em", 1):
+                publicacoes.setdefault(pub.get("conteudo_id"), []).append(pub)
+
+        historico = []
+        for c in conteudos:
+            cid = str(c["_id"])
+            item = {campo: c.get(campo) for campo in (
+                "tema", "objetivo", "publico", "tom", "imagens", "legendas",
+                "imagens_falhas", "legendas_falhas", "tempo_total_s", "criado_em",
+            )}
+            item["id"] = cid
+            item["publicacoes"] = [
+                {campo: p.get(campo) for campo in (
+                    "status", "permalink", "media_id", "image_url", "caption",
+                    "erro", "tempo_s", "criado_em",
+                )}
+                for p in publicacoes.get(cid, [])
+            ]
+            historico.append(_serializar(item))
+        return historico
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ Erro ao ler o histórico: {e}")
+        return []
